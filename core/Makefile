@@ -1104,10 +1104,16 @@ else
   INSTALLED_KERNEL_TARGET :=
 endif
 
-ifneq "$(or $(TARGET_KERNEL_RECOVERY_CONFIG), $(TARGET_PREBUILT_RECOVERY_KERNEL))" ""
-INSTALLED_RECOVERY_KERNEL := $(PRODUCT_OUT)/recovery_kernel
-else
-INSTALLED_RECOVERY_KERNEL := $(INSTALLED_KERNEL_TARGET)
+ifdef INSTALLED_KERNEL_TARGET
+ifneq (,$(filter true,$(BOARD_USES_RECOVERY_AS_BOOT)))
+  INSTALLED_RECOVERY_KERNEL_TARGET := $(INSTALLED_KERNEL_TARGET)
+else ifneq (true,$(BOARD_EXCLUDE_KERNEL_FROM_RECOVERY_IMAGE))
+  ifneq "$(or $(TARGET_KERNEL_RECOVERY_CONFIG), $(TARGET_PREBUILT_RECOVERY_KERNEL))" ""
+    INSTALLED_RECOVERY_KERNEL_TARGET := $(PRODUCT_OUT)/recovery_kernel
+  else
+    INSTALLED_RECOVERY_KERNEL_TARGET := $(firstword $(INSTALLED_KERNEL_TARGET))
+  endif
+endif
 endif
 # -----------------------------------------------------------------
 # the root dir
@@ -1946,7 +1952,10 @@ recovery_sepolicy := \
 # Passed into rsync from non-recovery root to recovery root, to avoid overwriting recovery-specific
 # SELinux files
 IGNORE_RECOVERY_SEPOLICY := $(patsubst $(TARGET_RECOVERY_OUT)/%,--exclude=/%,$(recovery_sepolicy))
-recovery_kernel := $(INSTALLED_RECOVERY_KERNEL)
+
+# if building multiple boot images from multiple kernels, use the first kernel listed
+# for the recovery image
+recovery_kernel := $(INSTALLED_RECOVERY_KERNEL_TARGET)
 recovery_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.img
 recovery_uncompressed_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.cpio
 recovery_resources_common := $(call include-path-for, recovery)/res
@@ -4627,6 +4636,7 @@ $(BUILT_TARGET_FILES_PACKAGE): \
 	    $(INTERNAL_SYSTEMOTHERIMAGE_FILES) \
 	    $(INSTALLED_ANDROID_INFO_TXT_TARGET) \
 	    $(INSTALLED_RECOVERY_KERNEL) \
+	    $(INSTALLED_RECOVERY_KERNEL_TARGET) \
 	    $(INSTALLED_KERNEL_TARGET) \
 	    $(INSTALLED_DTBIMAGE_TARGET) \
 	    $(INSTALLED_2NDBOOTLOADER_TARGET) \
@@ -4665,13 +4675,11 @@ ifneq (,$(INSTALLED_RECOVERYIMAGE_TARGET)$(filter true,$(BOARD_USES_RECOVERY_AS_
 	@# OTA install helpers
 	$(hide) $(call package_files-copy-root, \
 	    $(PRODUCT_OUT)/install,$(zip_root)/INSTALL)
-ifdef INSTALLED_RECOVERY_KERNEL
-# The python script that wraps it all up wants it to be named kernel, so do that
-	cp $(INSTALLED_RECOVERY_KERNEL) $(zip_root)/$(PRIVATE_RECOVERY_OUT)/kernel 
+ifdef INSTALLED_RECOVERY_KERNEL_TARGET
+	# The python script that wraps it all up wants it to be named kernel, so do that
+	cp $(INSTALLED_RECOVERY_KERNEL_TARGET) $(zip_root)/$(PRIVATE_RECOVERY_OUT)/kernel
 endif
-ifeq (truetrue,$(strip $(BUILDING_VENDOR_BOOT_IMAGE))$(strip $(AB_OTA_UPDATER)))
-	echo "$(GENERIC_KERNEL_CMDLINE)" > $(zip_root)/$(PRIVATE_RECOVERY_OUT)/cmdline
-else # not (BUILDING_VENDOR_BOOT_IMAGE and AB_OTA_UPDATER)
+ifneq (truetrue,$(strip $(BUILDING_VENDOR_BOOT_IMAGE))$(strip $(BOARD_USES_RECOVERY_AS_BOOT)))
 ifdef INSTALLED_2NDBOOTLOADER_TARGET
 	cp $(INSTALLED_2NDBOOTLOADER_TARGET) $(zip_root)/$(PRIVATE_RECOVERY_OUT)/second
 endif
